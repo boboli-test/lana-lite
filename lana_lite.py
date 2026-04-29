@@ -56,10 +56,13 @@ CG_API_KEY = os.getenv("COINGECKO_API_KEY", "")  # 可选 demo key
 
 
 # ========== 工具函数 ==========
-def tg_send(text: str, channel: str = "main"):
-    """v0.1.23 E.1: 多通道 TG 推送
+def tg_send(text: str, channel: str = "main", parse_mode = "Markdown"):
+    """v0.1.23 E.2: 多通道 TG 推送 + parse_mode opt-out + status_code 显式日志
     - channel="main"   : 实战交易通道 (TG_TOKEN/TG_CHAT, 默认, 完全向后兼容)
     - channel="social" : 社媒推送通道 (TELEGRAM_*_SOCIAL, 留空 fallback 到 main)
+    - parse_mode=None  : 系统类消息走 plain text 避免 Telegram 解析失败
+                         (legacy Markdown 含奇数下划线/星号会返回 400 silent drop)
+    - r.status_code != 200 时显式 log, 暴露此前 silent fail (e.g. 启航 banner)
     """
     import os
     if channel == "social":
@@ -73,9 +76,15 @@ def tg_send(text: str, channel: str = "main"):
         return
     url = "https://api.telegram.org/bot" + token + "/sendMessage"
     try:
-        requests.post(url, json={
-            "chat_id": chat, "text": text, "parse_mode": "Markdown"
-        }, timeout=10)
+        payload = {"chat_id": chat, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code != 200:
+            try:
+                log(f"[TG {channel}] HTTP {r.status_code}: {r.text[:300]}")
+            except Exception:
+                print(f"[TG {channel}] HTTP {r.status_code}: {r.text[:300]}")
     except Exception as e:
         print(f"[TG ERROR/{channel}]", e)
 
@@ -403,7 +412,7 @@ def daily_summary():
                 + " qty=" + str(p.get("qty","?")))
         if last3:
             msg.append("last 3d: " + str(last3))
-        tg_send("\n".join(msg), channel="social")
+        tg_send("\n".join(msg), channel="social", parse_mode=None)
     except Exception as _e_ds:
         log("[daily_summary] err: " + str(_e_ds))
 # === end Phase 2B daily_summary ===
@@ -421,22 +430,22 @@ if __name__ == "__main__":
                 raise
             except Exception as _e:
                 log(f"[boot_reconcile] err: {type(_e).__name__}: {str(_e)[:150]}")
-                tg_send(f"⚠️ boot_reconcile err str(_e)[:150], daemon 退出 5min 防 restart storm")
+                tg_send(f"⚠️ boot_reconcile err {str(_e)[:150]}, daemon 退出 5min 防 restart storm", parse_mode=None)
                 import time as _t; _t.sleep(300)
                 import sys as _s; _s.exit(1)
             log("[v0.1.18] assert_one_way_mode OK at boot")
         except Exception as _e:
             log("[FATAL] assert_one_way_mode failed at boot: " + str(_e))
             try:
-                tg_send("v0.1.18 assert_one_way_mode boot failed, daemon sleep 5min then exit to prevent -4061 + restart storm: " + str(_e)[:200])
+                tg_send("v0.1.18 assert_one_way_mode boot failed, daemon sleep 5min then exit to prevent -4061 + restart storm: " + str(_e)[:200], parse_mode=None)
             except Exception:
                 pass
             import time as _t, sys as _s
             _t.sleep(300)
             _s.exit(1)
-        tg_send("🔥 拉哪 Lite v0.1.23 已启动\n💰 真盘 100U / MAX_OPEN=2 / Plan B trail 20%/act 10%\n🛡️ risk_gate (单仓 / -3U / -10U / -25U) + Hedge 自愈\n📊 paper 999U 影子并行（胜率统计不受 MAX_OPEN 限制）")
+        tg_send("🔥 拉哪 Lite v0.1.23 已启动\n💰 真盘 100U / MAX_OPEN=2 / Plan B trail 20%/act 10%\n🛡️ risk_gate (单仓 / -3U / -10U / -25U) + Hedge 自愈\n📊 paper 999U 影子并行（胜率统计不受 MAX_OPEN 限制）", parse_mode=None)
     else:
-        tg_send("✅ 拉哪 Lite v0.1.23 已启动\nH1 主方向引擎上线 / paper 模拟模式（胜率验证）")
+        tg_send("✅ 拉哪 Lite v0.1.23 已启动\nH1 主方向引擎上线 / paper 模拟模式（胜率验证）", parse_mode=None)
     threading.Thread(target=binance_paper.paper_check_all, daemon=True).start()
     log("paper_check_all 守护线程已启动")
     if REAL_MODE and binance_real_runner is not None:
